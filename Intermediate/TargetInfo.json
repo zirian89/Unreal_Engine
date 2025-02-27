@@ -1,0 +1,14 @@
+{
+	"Targets": [
+		{
+			"Name": "hydraulicErosion",
+			"Path": "..\\Source\\hydraulicErosion.Target.cs",
+			"Type": "Game"
+		},
+		{
+			"Name": "hydraulicErosionEditor",
+			"Path": "..\\Source\\hydraulicErosionEditor.Target.cs",
+			"Type": "Editor"
+		}
+	]
+}

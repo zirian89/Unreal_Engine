@@ -18,7 +18,6 @@ void Aerosion::BeginPlay()
     initializeHeightmap();
     erode(NumberOfDroplets, MaxDropletSteps);
 	Super::BeginPlay();
-    UpdateLandscapeLODAndMipmaps();
 	
 }
 
@@ -33,99 +32,72 @@ void Aerosion::Tick(float DeltaTime)
 void Aerosion::initializeHeightmap()
 {
     if (!TargetLandscape) return;
+
     ULandscapeInfo* LandscapeInfo = TargetLandscape->GetLandscapeInfo();
-	if (!LandscapeInfo)
-	{
-		return;
-	}
+    if (!LandscapeInfo) return;
 
-	LandscapeInfo->GetLandscapeExtent(MinX, MinY, MaxX, MaxY);
+    // Get landscape dimensions
+    LandscapeInfo->GetLandscapeExtent(MinX, MinY, MaxX, MaxY);
+    GridSizeX = MaxX - MinX + 1;
+    GridSizeY = MaxY - MinY + 1;
 
-	GridSizeX = MaxX - MinX + 1;
-	GridSizeY = MaxY - MinY + 1;
-    
+    // Initialize arrays
     Heightmap.SetNum(GridSizeX * GridSizeY);
     NormalizedHeightmap.SetNum(GridSizeX * GridSizeY);
 
-    FHeightmapAccessor<false> HeightmapAccessor(LandscapeInfo);
-    HeightmapAccessor.GetDataFast(MinX, MinY, MaxX, MaxY, Heightmap.GetData());
-    
-    logOutput(FString::Printf(TEXT("Height Map Matrix \n")));
+    // Get height data using landscape tools
+    FLandscapeEditDataInterface LandscapeEdit(LandscapeInfo);
+    LandscapeEdit.GetHeightData(MinX, MinY, MaxX, MaxY, Heightmap.GetData(), 0);
 
-    for (int i = 0; i < 64; i+=8)
-    {
-        logOutput(FString::Printf(TEXT("%d, %d, %d, %d, %d, %d, %d, %d \n"), Heightmap[i + 0], Heightmap[i + 1], Heightmap[i + 2], Heightmap[i + 3], Heightmap[i + 4], Heightmap[i + 5], Heightmap[i + 6], Heightmap[i + 7]));
-    }
-
+    // Normalize the heightmap
     const float Scale = 1.0f / 65535.0f;
     for (int32 i = 0; i < Heightmap.Num(); ++i)
     {
         NormalizedHeightmap[i] = static_cast<float>(Heightmap[i]) * Scale;
     }
-
-    logOutput(FString::Printf(TEXT("Normalized Height Map Matrix \n")));
-
-    for (int i = 0; i < 64; i += 8)
-    {
-        logOutput(FString::Printf(TEXT("%f, %f, %f, %f, %f, %f, %f, %f \n"), NormalizedHeightmap[i + 0], NormalizedHeightmap[i + 1], NormalizedHeightmap[i + 2], NormalizedHeightmap[i + 3], NormalizedHeightmap[i + 4], NormalizedHeightmap[i + 5], NormalizedHeightmap[i + 6], NormalizedHeightmap[i + 7]));
-    }
-	//logOutput(FString::Printf(TEXT("Minx=%d, MinY=%d, MaxX=%d, MaxY=%d \n"), MinX, MinY, MaxX, MaxY));
-    //logOutput(FString::Printf(TEXT("X Grid Size =%d, Y Grid Size =%d \n"), GridSizeX, GridSizeY));
-    //logOutput(FString::Printf(TEXT("Heightmap count =%d \n"), Heightmap.Num()));
-
-
-   // GEngine->AddOnScreenDebugMessage(-1, 15.0f, FColor::Yellow, FString::Printf(TEXT("Minx=%d, MinY=%d, MaxX=%d, MaxY=%d"), MinX, MinY, MaxX, MaxY));
-   // GEngine->AddOnScreenDebugMessage(-1, 15.0f, FColor::Yellow, FString::Printf(TEXT("X Grid Size =%d, Y Grid Size =%d"), GridSizeX, GridSizeY));
-
-
 }
 
 void Aerosion::applyHeightMapToLandscape()
 {
     if (!TargetLandscape) return;
 
-
     ULandscapeInfo* LandscapeInfo = TargetLandscape->GetLandscapeInfo();
-    if (!LandscapeInfo)
-    {
-        return;
-    }   
+    if (!LandscapeInfo) return;
 
-    FHeightmapAccessor<false> HeightmapAccessor(LandscapeInfo);
-//    TArray<uint16> HeightData;
-//	HeightData.SetNum(Heightmap.Num());
+    // Create a transaction for undo/redo
+    FScopedTransaction Transaction(FText::FromString(TEXT("Landscape Erosion")));
+    TargetLandscape->Modify();
 
-    logOutput(FString::Printf(TEXT("Normalized Height Map Matrix After Modification\n")));
-
-    for (int i = 0; i < 64; i += 8)
-    {
-        logOutput(FString::Printf(TEXT("%f, %f, %f, %f, %f, %f, %f, %f \n"), NormalizedHeightmap[i + 0], NormalizedHeightmap[i + 1], NormalizedHeightmap[i + 2], NormalizedHeightmap[i + 3], NormalizedHeightmap[i + 4], NormalizedHeightmap[i + 5], NormalizedHeightmap[i + 6], NormalizedHeightmap[i + 7]));
-    }
+    // Convert normalized heights back to landscape height values
+    TArray<uint16> HeightData;
+    HeightData.SetNum(NormalizedHeightmap.Num());
 
     for (int32 i = 0; i < NormalizedHeightmap.Num(); ++i)
     {
-        // Clamp the normalized value between 0 and 1 to ensure valid conversion
-        NormalizedHeightmap[i] = FMath::Clamp(NormalizedHeightmap[i], 0.0f, 1.0f);
-        // Convert back to uint16 range (0 to 65535)
-        Heightmap[i] = static_cast<uint16>(NormalizedHeightmap[i] * 65535.0f);
+        float ClampedHeight = FMath::Clamp(NormalizedHeightmap[i], 0.0f, 1.0f);
+        HeightData[i] = static_cast<uint16>(ClampedHeight * 65535.0f);
     }
 
+    // Apply height changes using landscape tools
+    FLandscapeEditDataInterface LandscapeEdit(LandscapeInfo);
+    LandscapeEdit.SetHeightData(MinX, MinY, MaxX, MaxY, HeightData.GetData(), 0, true);
+    LandscapeEdit.Flush(); // Ensure texture updates are completed and locks are released
 
-    logOutput(FString::Printf(TEXT("Height Map Matrix After Modification\n")));
-
-    for (int i = 0; i < 64; i += 8)
+    // Mark landscape as needing update
+    for (ULandscapeComponent* Component : TargetLandscape->LandscapeComponents)
     {
-        logOutput(FString::Printf(TEXT("%d, %d, %d, %d, %d, %d, %d, %d \n"), Heightmap[i + 0], Heightmap[i + 1], Heightmap[i + 2], Heightmap[i + 3], Heightmap[i + 4], Heightmap[i + 5], Heightmap[i + 6], Heightmap[i + 7]));
-    }
-//    for (int32 i = 0; i < Heightmap.Num(); i++)
-//    {
-//        HeightData[i] = FMath::Clamp<uint16>((Heightmap[i] / 512.0f) * 65535.0f, 0.0f, 65535.0f);
-//    }
-    // Set the new heightmap data
-    HeightmapAccessor.SetData(MinX, MinY, MaxX, MaxY, Heightmap.GetData());
+        if (Component)
+        {
+            Component->UpdateCachedBounds();
+            Component->UpdateComponentToWorld();
+            Component->MarkRenderStateDirty();
 
-    // Flush any changes to the heightmap
-    HeightmapAccessor.Flush();
+        }
+    }
+
+    // Update collision
+    TargetLandscape->RequestLayersContentUpdate(ELandscapeLayerUpdateMode::Update_All);
+
 }
 
 float Aerosion::getHeightAt(float x, float y)
@@ -271,30 +243,3 @@ void Aerosion::logOutput(FString log)
     FFileHelper::SaveStringToFile(log, *FilePath, FFileHelper::EEncodingOptions::AutoDetect, &IFileManager::Get(), EFileWrite::FILEWRITE_Append);
 }
 
-void Aerosion::UpdateLandscapeLODAndMipmaps()
-{
-    if (!TargetLandscape) return;
-
-    for (ULandscapeComponent* Component : TargetLandscape->LandscapeComponents)
-    {
-        if (Component)
-        {
-            // Update LOD
-            Component->UpdateCachedBounds();
-            Component->UpdateComponentToWorld();
-            Component->UpdateMaterialInstances();
-
-            // Regenerate render data
-            Component->UpdateBounds();
-            // Update mipmaps
-            Component->UpdateMaterialInstances();
-            Component->MarkRenderStateDirty();
-        }
-    }
-
-    // Trigger landscape streaming update
-    TargetLandscape->RerunConstructionScripts();
-    TargetLandscape->PostEditChange();
-    // Optional: Mark landscape for full update
-    TargetLandscape->MarkPackageDirty();
-}

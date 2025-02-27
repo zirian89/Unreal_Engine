@@ -10,6 +10,7 @@
 #include "Landscape.h"
 #include "LandscapeComponent.h"
 #include "LandscapeEdit.h"
+#include "Editor.h"
 #include "erosion.generated.h"
 
 
@@ -28,6 +29,7 @@ class HYDRAULICEROSION_API Aerosion : public AActor
 	GENERATED_BODY()
 	
 public:	
+
 	// Sets default values for this actor's properties
 	Aerosion();
     UPROPERTY(EditAnywhere, Category = "Erosion Parameters")
@@ -72,7 +74,6 @@ public:
 
     void erode(int numParticles, int stepsPerParticle);
 
-    void UpdateLandscapeLODAndMipmaps();
 
 
 
@@ -87,6 +88,16 @@ private:
     int32 GridSizeY;
 
     int32 MinX, MinY, MaxX, MaxY;
+
+
+    struct FTextureSettings
+    {
+        TextureCompressionSettings OriginalCompressionSettings;
+        TextureMipGenSettings OriginalMipGenSettings;
+        bool OriginalSRGB;
+    };
+
+    TArray<FTextureSettings> OriginalTextureSettings;
 
 
 	void initializeHeightmap();
